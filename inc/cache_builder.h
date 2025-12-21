@@ -62,6 +62,7 @@ struct cache_builder_base {
   std::vector<champsim::channel*> m_uls{};
   champsim::channel* m_ll{};
   champsim::channel* m_lt{nullptr};
+  champsim::channel* m_ll2{nullptr};
 };
 } // namespace detail
 
@@ -227,6 +228,11 @@ public:
    * Specify the lower level of the cache.
    */
   self_type& lower_level(champsim::channel* ll_);
+
+  /**
+   * Specify the second lower level of the cache, used for the authentication tree cache
+   */
+  self_type& lower_level2(champsim::channel* ll2_);
 
   /**
    * Specify the translator (TLB) for this cache.
@@ -504,6 +510,13 @@ template <typename P, typename R>
 auto champsim::cache_builder<P, R>::lower_level(champsim::channel* ll_) -> self_type&
 {
   m_ll = ll_;
+  return *this;
+}
+
+template <typename P, typename R>
+auto champsim::cache_builder<P, R>::lower_level2(champsim::channel* ll2_) -> self_type&
+{
+  m_ll2 = ll2_;
   return *this;
 }
 

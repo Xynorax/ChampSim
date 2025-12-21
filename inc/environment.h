@@ -33,6 +33,7 @@ struct environment {
   virtual std::vector<std::reference_wrapper<CACHE>> cache_view() = 0;
   virtual std::vector<std::reference_wrapper<PageTableWalker>> ptw_view() = 0;
   virtual MEMORY_CONTROLLER& dram_view() = 0;
+  virtual MEMORY_CONTROLLER& tree_dram_view() = 0;
   virtual std::vector<std::reference_wrapper<operable>> operable_view() = 0;
 };
 

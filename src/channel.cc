@@ -126,7 +126,7 @@ bool champsim::channel::do_add_queue(R& queue, std::size_t queue_size, const typ
   auto fwd_pkt = packet;
   fwd_pkt.forward_checked = false;
   queue.push_back(fwd_pkt);
-
+  //fmt::print("do_add_queue packet: {} {}\n", packet.current_level, packet.llc_address);
   return true;
 }
 
@@ -140,7 +140,7 @@ bool champsim::channel::add_rq(const request_type& packet)
   sim_stats.RQ_ACCESS++;
 
   auto result = do_add_queue(RQ, RQ_SIZE, packet);
-
+  //fmt::print("add_rq packet: {} \n", packet.current_level);
   if (result) {
     sim_stats.RQ_TO_CACHE++;
   } else {

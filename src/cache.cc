@@ -31,11 +31,14 @@
 #include "util/algorithm.h"
 #include "util/bits.h"
 #include "util/span.h"
+#include "tree_address_generator.h"
+#include "tree_config.h"
+#include "authenticator.h"
 
-CACHE::CACHE(CACHE&& other)
+CACHE::CACHE(CACHE&& other) // constructor of the CACHE class, && means it is an rvalue reference to another cache object used for moving its resources isntead of copying them
     : operable(other),
 
-      upper_levels(std::move(other.upper_levels)), lower_level(std::move(other.lower_level)), lower_translate(std::move(other.lower_translate)),
+      upper_levels(std::move(other.upper_levels)), lower_level(std::move(other.lower_level)),lower_level2(std::move(other.lower_level2)), lower_translate(std::move(other.lower_translate)),
 
       cpu(other.cpu), NAME(std::move(other.NAME)), NUM_SET(other.NUM_SET), NUM_WAY(other.NUM_WAY), MSHR_SIZE(other.MSHR_SIZE), PQ_SIZE(other.PQ_SIZE),
       HIT_LATENCY(other.HIT_LATENCY), FILL_LATENCY(other.FILL_LATENCY), OFFSET_BITS(other.OFFSET_BITS), block(std::move(other.block)), MAX_TAG(other.MAX_TAG),
@@ -58,6 +61,7 @@ auto CACHE::operator=(CACHE&& other) -> CACHE&
 
   this->upper_levels = std::move(other.upper_levels);
   this->lower_level = std::move(other.lower_level);
+  this->lower_level2 = std::move(other.lower_level2);
   this->lower_translate = std::move(other.lower_translate);
 
   this->cpu = other.cpu;
@@ -94,13 +98,15 @@ auto CACHE::operator=(CACHE&& other) -> CACHE&
 
 CACHE::tag_lookup_type::tag_lookup_type(const request_type& req, bool local_pref, bool skip)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me)
+      type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me),current_level(req.current_level)
+      ,llc_address(req.llc_address)
 {
 }
 
 CACHE::mshr_type::mshr_type(const tag_lookup_type& req, champsim::chrono::clock::time_point _time_enqueued)
     : address(req.address), v_address(req.v_address), ip(req.ip), instr_id(req.instr_id), cpu(req.cpu), type(req.type),
-      prefetch_from_this(req.prefetch_from_this), time_enqueued(_time_enqueued), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return)
+      prefetch_from_this(req.prefetch_from_this), time_enqueued(_time_enqueued), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return),current_level(req.current_level)
+      ,llc_address(req.llc_address)
 {
 }
 
@@ -169,7 +175,22 @@ champsim::address CACHE::module_address(const T& element) const
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
   cpu = fill_mshr.cpu;
+  if (this->NAME == "LLC") {
+    if (authenticator.check_authenticated(fill_mshr.llc_address)) {
+      
+    }
+    else if (authenticator.ready_for_authentication(fill_mshr.llc_address) == false) {
+      return false;
+    }
+    else {
+      authenticator.start_authentication(fill_mshr.llc_address, current_time);
+      return false;
+    }
 
+  }
+  if (this->NAME == "tree_cache") {
+    authenticator.set_node_ready(fill_mshr.llc_address, fill_mshr.address);
+  }
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
   auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
@@ -288,7 +309,11 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
       ++sim_stats.pf_useful;
       way->prefetch = false;
     }
-  }
+    if (this->NAME == "tree_cache") {
+      authenticator.add_tree_node(handle_pkt.llc_address, handle_pkt.address ,handle_pkt.current_level, true);
+
+    }
+}
 
   return hit;
 }
@@ -314,6 +339,8 @@ auto CACHE::mshr_and_forward_packet(const tag_lookup_type& handle_pkt) -> std::p
   fwd_pkt.instr_depend_on_me = handle_pkt.instr_depend_on_me;
   fwd_pkt.response_requested = (!handle_pkt.prefetch_from_this || !handle_pkt.skip_fill);
 
+  fwd_pkt.current_level = handle_pkt.current_level;
+  fwd_pkt.llc_address = handle_pkt.llc_address;
   return std::pair{std::move(to_allocate), std::move(fwd_pkt)};
 }
 
@@ -324,19 +351,25 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
                handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)), handle_pkt.prefetch_from_this,
                current_time.time_since_epoch() / clock_period);
   }
+  //fmt::print("received llc address: {} \n", handle_pkt.llc_address);
+  //fmt::print("general cache miss on address {} \n", handle_pkt.address);
+  //fmt::print("Cache name: {} \n", this->NAME);
+  mshr_type to_allocate{handle_pkt, current_time}; //constructs an mshr entry with the miss info
 
-  mshr_type to_allocate{handle_pkt, current_time};
+  cpu = handle_pkt.cpu; // sets the core that causes the miss
 
-  cpu = handle_pkt.cpu;
-
-  auto mshr_pkt = mshr_and_forward_packet(handle_pkt);
-
+  auto mshr_pkt = mshr_and_forward_packet(handle_pkt); //create packet for lower level cache
+  auto tree_mshr_pkt = mshr_pkt;
   // check mshr
-  auto mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR), matches_address(handle_pkt.address));
-  bool mshr_full = (MSHR.size() == MSHR_SIZE);
-
+  auto mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR), matches_address(handle_pkt.address)); // check for existing mshr entry, if address matches
+  bool mshr_full = (MSHR.size() == MSHR_SIZE); // checks if mshr is full
+  bool auth_queue_full = (authenticator.authentication_queue.size() == champsim::AUTHENTICATION_QUEUE_SIZE); // check if authentication queue is full
+  if (auth_queue_full && (this->NAME == "tree_cache" || this->NAME == "LLC")) {
+    return false;
+  }
   if (mshr_entry != MSHR.end()) // miss already inflight
   {
+    //fmt::print("mshr entry already exists");
     if (mshr_entry->type == access_type::PREFETCH && handle_pkt.type != access_type::PREFETCH) {
       // Mark the prefetch as useful
       if (mshr_entry->prefetch_from_this) {
@@ -353,20 +386,84 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       return false;  // TODO should we allow prefetches anyway if they will not be filled to this level?
     }
 
-    const bool send_to_rq = (prefetch_as_load || handle_pkt.type != access_type::PREFETCH);
-    bool success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second);
+    bool success = false;
+    const bool send_to_rq = (prefetch_as_load || handle_pkt.type != access_type::PREFETCH); // loads and stores go to Request Queue
+    if (this->NAME != "tree_cache") {
+      success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second); 
+    }
+    bool success2 = true;
 
-    if (!success) {
+    if (this->NAME == "tree_cache") {
+      fmt::print("tree_cache miss on address {} \n", handle_pkt.address);
+      success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second);
+      fmt::print("current_level:{} \n",mshr_pkt.second.current_level);
+      fmt::print("llc address:{} \n",mshr_pkt.second.llc_address);
+      if (mshr_pkt.second.current_level >= 0) { 
+        fmt::print("Calling tree addresses generation");
+        std::vector<uint64_t> tree_addresses = generate_tree_addresses(mshr_pkt.second.llc_address);
+        fmt::print("tree addresses: {}", tree_addresses);
+        uint64_t tree_addr = tree_addresses[mshr_pkt.second.current_level];
+        auto tree_handle_pkt = handle_pkt;
+        tree_handle_pkt.address = champsim::address(tree_addr);
+        tree_handle_pkt.current_level = mshr_pkt.second.current_level - 1;  
+        tree_handle_pkt.llc_address = mshr_pkt.second.llc_address;
+        tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
+        tree_mshr_pkt.second.current_level = mshr_pkt.second.current_level - 1;
+        tree_mshr_pkt.second.llc_address = mshr_pkt.second.llc_address;
+        tree_mshr_pkt.second.response_requested = true;
+        tree_mshr_pkt.second.address = tree_handle_pkt.address;
+        fmt::print("adding entry to authenticator");
+        authenticator.add_tree_node(tree_handle_pkt.llc_address,tree_mshr_pkt.second.address, mshr_pkt.second.current_level);
+        fmt::print("sending to self \n");
+
+        success2 = send_to_rq ? upper_levels[0]->add_rq(tree_mshr_pkt.second) : upper_levels[0]->add_pq(tree_mshr_pkt.second);
+      }
+       
+    }
+    
+    if (this->NAME == "LLC" && lower_level2 != nullptr) {
+      
+      fmt::print("LLC MISS on address {} \n", handle_pkt.address);
+      std::vector<uint64_t> tree_addresses = generate_tree_addresses(handle_pkt.address);
+      uint64_t tree_addr = tree_addresses[tree::MAX_LEVEL - 1];
+      auto tree_handle_pkt = handle_pkt;
+      tree_handle_pkt.address = champsim::address(tree_addr);
+      tree_handle_pkt.current_level = static_cast<int8_t>(tree::MAX_LEVEL - 2);
+      tree_handle_pkt.llc_address = handle_pkt.address;
+      tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
+      tree_mshr_pkt.second.response_requested = false;
+      tree_mshr_pkt.second.llc_address = handle_pkt.address;
+      authenticator.add_entry(handle_pkt.address);
+      tree_mshr_pkt.second.current_level = static_cast<int8_t>(tree::MAX_LEVEL - 2);
+      fmt::print("Level sent: {} \n",tree_mshr_pkt.second.current_level );
+      if (send_to_rq) {
+          // Forward to your custom target (e.g., DRAM RQ)
+          success2 = lower_level2->add_rq(tree_mshr_pkt.second);
+
+      } else {
+          // Maybe still send PQ to DRAM?
+          success2 = lower_level2->add_pq(tree_mshr_pkt.second);
+          
+    }
+  }
+    if (!success || !success2) {
       return false;
     }
 
     // Allocate an MSHR
-    if (mshr_pkt.second.response_requested) {
-      MSHR.emplace_back(std::move(mshr_pkt.first));
+    if (this->NAME != "tree_cache") {
+      if (mshr_pkt.second.response_requested) {
+        MSHR.emplace_back(std::move(mshr_pkt.first));
+      }
+    }
+    else{
+      if (mshr_pkt.second.response_requested) {
+        MSHR.emplace_back(std::move(mshr_pkt.first));
+      }
     }
   }
 
-  sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+  sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu}); // increment miss count
 
   return true;
 }
@@ -392,6 +489,7 @@ template <bool UpdateRequest>
 auto CACHE::initiate_tag_check(champsim::channel* ul)
 {
   return [time = current_time + (warmup ? champsim::chrono::clock::duration{} : HIT_LATENCY), ul](const auto& entry) {
+    //fmt::print("initiate_tag_check entry: {} {}\n", entry.current_level, entry.llc_address);
     CACHE::tag_lookup_type retval{entry};
     retval.event_cycle = time;
 
@@ -407,7 +505,7 @@ auto CACHE::initiate_tag_check(champsim::channel* ul)
       fmt::print("[TAG] initiate_tag_check instr_id: {} address: {} v_address: {} type: {} response_requested: {}\n", retval.instr_id, retval.address,
                  retval.v_address, access_type_names.at(champsim::to_underlying(retval.type)), !std::empty(retval.to_return));
     }
-
+    //fmt::print("initiate_tag_check retval: {} {}\n", retval.current_level, retval.llc_address);
     return retval;
   };
 }
@@ -449,6 +547,7 @@ long CACHE::operate()
     q.get().erase(fill_begin, complete_end);
   }
 
+  authenticator.update_auth_timer(current_time);
   // Initiate tag checks
   const champsim::bandwidth::maximum_type bandwidth_from_tag_checks{champsim::to_underlying(MAX_TAG) * (long)(HIT_LATENCY / clock_period)
                                                                     - (long)std::size(inflight_tag_check)};
@@ -475,6 +574,7 @@ long CACHE::operate()
     for (auto q : {std::ref(ul->WQ), std::ref(ul->RQ), std::ref(ul->PQ)}) {
       // this needs to be in this loop, we need to ensure that for cases where bandwidth doesn't divide nicely across upstreams,
       // we don't accidentally consume more bandwidth than expected
+      //fmt::print("operate packet before transf: {} {}\n", ul->RQ[0].current_level, ul->RQ[0].llc_address);
       champsim::bandwidth per_upper_tag_bw{std::min(per_upper_bandwidth, champsim::bandwidth::maximum_type{initiate_tag_bw.amount_remaining()})};
       auto bandwidth_consumed =
           champsim::transform_while_n(q.get(), std::back_inserter(inflight_tag_check), per_upper_tag_bw, can_translate, initiate_tag_check<true>(ul));
@@ -610,18 +710,21 @@ bool CACHE::prefetch_line(uint64_t /*deprecated*/, uint64_t /*deprecated*/, uint
 void CACHE::finish_packet(const response_type& packet)
 {
   // check MSHR information
-  auto mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR), matches_address(packet.address));
-  auto first_unreturned = std::find_if(MSHR.begin(), MSHR.end(), [](auto x) { return x.data_promise.has_unknown_readiness(); });
+  auto mshr_entry = std::find_if(std::begin(MSHR), std::end(MSHR), matches_address(packet.address)); //Search for an MSHR entry with the same address as the returned packet
+  auto first_unreturned = std::find_if(MSHR.begin(), MSHR.end(), [](auto x) { return x.data_promise.has_unknown_readiness(); }); // Find first MSHR entry that hasnt received its data yet
 
   // sanity check
   if (mshr_entry == MSHR.end()) {
     fmt::print(stderr, "[{}_MSHR] {} cannot find a matching entry! address: {} v_address: {}\n", NAME, __func__, packet.address, packet.v_address);
     assert(0);
   }
-
+  int DECRYPTION_LATENCY = 0;
+  if (this->NAME == "tree_cache" || this->NAME == "LLC") {
+    DECRYPTION_LATENCY = 20;
+  }
   // MSHR holds the most updated information about this request
   mshr_type::returned_value finished_value{packet.data, packet.pf_metadata};
-  mshr_entry->data_promise = champsim::waitable{finished_value, current_time + (warmup ? champsim::chrono::clock::duration{} : FILL_LATENCY)};
+  mshr_entry->data_promise = champsim::waitable{finished_value, current_time + (warmup ? champsim::chrono::clock::duration{} : (FILL_LATENCY + DECRYPTION_LATENCY*clock_period))}; //Sets MSHR data promise to be ready at current time + fill latency
   if constexpr (champsim::debug_print) {
     fmt::print("[{}_MSHR] finish_packet instr_id: {} address: {} data: {} type: {} current: {}\n", this->NAME, mshr_entry->instr_id, mshr_entry->address,
                mshr_entry->data_promise->data, access_type_names.at(champsim::to_underlying(mshr_entry->type)), current_time.time_since_epoch() / clock_period);
@@ -841,6 +944,10 @@ void CACHE::initialize()
 {
   impl_prefetcher_initialize();
   impl_initialize_replacement();
+  //fmt::print("[{}] Initializing cache\n", NAME);
+  //fmt::print("[{}]   lower_level = {}\n", NAME, (void*)lower_level);
+  //fmt::print("[{}]   lower_level2 = {}\n", NAME, (void*)lower_level2);
+  //fmt::print("[{}]   lower_translate = {}\n", NAME, (void*)lower_translate);
 }
 
 void CACHE::begin_phase()

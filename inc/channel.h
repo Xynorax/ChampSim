@@ -67,6 +67,8 @@ class channel
     champsim::address ip{};
 
     std::vector<uint64_t> instr_depend_on_me{};
+    int8_t current_level = 0;
+    champsim::address llc_address{};
   };
 
   struct response {

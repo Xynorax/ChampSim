@@ -34,6 +34,10 @@
 #include "stats_printer.h"
 #include "tracereader.h"
 #include "vmem.h"
+#include "tree_config.h"
+#include "authenticator.h"
+
+champsim::environment* global_environment = nullptr;
 
 namespace champsim
 {
@@ -55,7 +59,9 @@ const unsigned LOG2_PAGE_SIZE = champsim::lg2(PAGE_SIZE);
 int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
 {
   configured_environment gen_environment{};
-
+  global_environment = &gen_environment;
+  tree::initialize();
+  
   CLI::App app{"A microarchitecture simulator for research and education"};
 
   bool knob_cloudsuite{false};
