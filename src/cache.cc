@@ -396,27 +396,35 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     if (this->NAME == "tree_cache") {
       fmt::print("tree_cache miss on address {} \n", handle_pkt.address);
       success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second);
-      fmt::print("current_level:{} \n",mshr_pkt.second.current_level);
+      int current_level = handle_pkt.current_level;
+      fmt::print("current_level:{} \n",current_level);
       fmt::print("llc address:{} \n",mshr_pkt.second.llc_address);
-      if (mshr_pkt.second.current_level >= 0) { 
-        fmt::print("Calling tree addresses generation");
+      if (current_level >= 0) {
+        champsim::address llc_addr = mshr_pkt.second.llc_address; 
+        fmt::print("Calling tree addresses generation \n");
         std::vector<uint64_t> tree_addresses = generate_tree_addresses(mshr_pkt.second.llc_address);
-        fmt::print("tree addresses: {}", tree_addresses);
+        fmt::print("Generated tree addresses \n");
+        fmt::print("tree addresses: {}\n", tree_addresses);
         uint64_t tree_addr = tree_addresses[mshr_pkt.second.current_level];
+        fmt::print("Debug! \n");
         auto tree_handle_pkt = handle_pkt;
         tree_handle_pkt.address = champsim::address(tree_addr);
         tree_handle_pkt.current_level = mshr_pkt.second.current_level - 1;  
         tree_handle_pkt.llc_address = mshr_pkt.second.llc_address;
         tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
-        tree_mshr_pkt.second.current_level = mshr_pkt.second.current_level - 1;
-        tree_mshr_pkt.second.llc_address = mshr_pkt.second.llc_address;
         tree_mshr_pkt.second.response_requested = true;
-        tree_mshr_pkt.second.address = tree_handle_pkt.address;
-        fmt::print("adding entry to authenticator");
+        fmt::print("adding entry to authenticator \n");
         authenticator.add_tree_node(tree_handle_pkt.llc_address,tree_mshr_pkt.second.address, mshr_pkt.second.current_level);
         fmt::print("sending to self \n");
+        if (send_to_rq) {
+          // Forward to your custom target (e.g., DRAM RQ)
+          success2 = upper_levels[0]->add_rq(tree_mshr_pkt.second);
 
-        success2 = send_to_rq ? upper_levels[0]->add_rq(tree_mshr_pkt.second) : upper_levels[0]->add_pq(tree_mshr_pkt.second);
+        } else {
+          // Maybe still send PQ to DRAM?
+          success2 = upper_levels[0]->add_pq(tree_mshr_pkt.second);
+          
+        }
       }
        
     }
@@ -547,7 +555,7 @@ long CACHE::operate()
     q.get().erase(fill_begin, complete_end);
   }
 
-  authenticator.update_auth_timer(current_time);
+  //authenticator.update_auth_timer(current_time);
   // Initiate tag checks
   const champsim::bandwidth::maximum_type bandwidth_from_tag_checks{champsim::to_underlying(MAX_TAG) * (long)(HIT_LATENCY / clock_period)
                                                                     - (long)std::size(inflight_tag_check)};

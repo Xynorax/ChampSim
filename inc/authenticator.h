@@ -30,20 +30,23 @@ public:
     };
     std::deque<auth_entry> authentication_queue;
     void add_entry(champsim::address llc_address, bool authenticated = false) {
-        champsim::Authenticator::auth_entry new_entry;
+        auth_entry new_entry;
         new_entry.llc_address = llc_address;
         new_entry.authenticated = authenticated;
-        this->authentication_queue.push_back(new_entry);
+        new_entry.cached_level = tree::MAX_LEVEL;
+        new_entry.ready = false;
+        new_entry.tree_levels.resize(tree::MAX_LEVEL);   // <<< REQUIRED
+        authentication_queue.push_back(new_entry);
 
     };
 
     void add_tree_node(champsim::address llc_address, champsim::address tree_node_address, int8_t current_level, bool cached = false) {
-        for (int idx = 0; idx < AUTHENTICATION_QUEUE_SIZE; idx++) {
-            if (this->authentication_queue[idx].llc_address == llc_address) {
-                this->authentication_queue[idx].tree_levels[current_level].address = tree_node_address;
-                cached = cached;
+        for (auto& entry : authentication_queue) {
+            if (entry.llc_address == llc_address) {
+                entry.tree_levels[current_level].address = tree_node_address;
+                entry.tree_levels[current_level].cached = cached;
                 if (cached) {
-                    this->authentication_queue[idx].cached_level = current_level;
+                    entry.cached_level = current_level;
                 }
             }
         }
@@ -82,19 +85,19 @@ public:
     }
 
     void set_node_ready(champsim::address llc_address, champsim::address node_address) {
-        for (int idx = 0; idx < AUTHENTICATION_QUEUE_SIZE; idx++) {
-            if (this->authentication_queue[idx].llc_address == llc_address and this->authentication_queue[idx].ready) {
+        for (auto& entry : authentication_queue) {
+            if (entry.llc_address == llc_address and entry.ready) {
                 for (int j = 0; j < tree::MAX_LEVEL; j++) {
-                    if (this->authentication_queue[idx].tree_levels[j].address == node_address) {
-                        this->authentication_queue[idx].tree_levels[j].ready = true;
+                    if (entry.tree_levels[j].address == node_address) {
+                        entry.tree_levels[j].ready = true;
                     }
                 }
-                for (int j = tree::MAX_LEVEL; j >= this->authentication_queue[idx].cached_level; j--) {
-                    if (this->authentication_queue[idx].tree_levels[j].ready == false) {
+                for (int j = tree::MAX_LEVEL - 1; j >= 0; j--) {
+                    if (entry.tree_levels[j].ready == false) {
                         break;
                     }
-                    if (j == this->authentication_queue[idx].cached_level) {
-                        this->authentication_queue[idx].ready = true;
+                    if (j == entry.cached_level || j == 0) {
+                        entry.ready = true;
                     }
                 }
             }
