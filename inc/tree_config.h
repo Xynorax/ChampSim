@@ -14,11 +14,12 @@ namespace tree{
     const int TREE_ARITY = 8;
     const int TREE_ROOTS = 64;
     const int MEMORY_START_ADDR = 0;
+    const int TREE_MEMORY_START_ADDR = 0;
     const int TREE_DATA_SIZE = 8; //Bytes
     
     const int BLOCK_SIZE = 64;
 
-    //To be calculate parameters
+    //To be calculated parameters
     inline uint64_t DATA_MEM_SIZE = 0;
     inline MEMORY_CONTROLLER* dram_ptr;
     inline uint8_t TREE_ARITY_BITS = 0;
@@ -30,7 +31,7 @@ namespace tree{
     inline uint64_t TREE_SIZE_PART;
     inline std::vector<uint64_t> init_tree_addresses(uint64_t tree_size) {
             std::vector<uint64_t> addresses(TREE_ROOTS);
-            addresses[0] = MEMORY_START_ADDR + DATA_MEM_SIZE;
+            addresses[0] = TREE_MEMORY_START_ADDR; // Start at 0 because tree nodes have a separate memory else start at MEMORY_START_ADDR + DATA_MEM_SIZE
             uint64_t vLastStart = addresses[0];
             
             for (int x = 1; x < TREE_ROOTS; x++) {
@@ -61,13 +62,13 @@ namespace tree{
 
         TREE_SIZE = static_cast<uint64_t>(((pow(TREE_ARITY, MAX_LEVEL) - 1) / (TREE_ARITY - 1)) * TREE_ARITY * TREE_DATA_SIZE);
         TREE_SIZE_PART = static_cast<uint64_t>(pow(TREE_ARITY, MAX_LEVEL) - 1);
-        fmt::print("TREE_SIZE_PART: {} \n", TREE_SIZE_PART);
+        fmt::print("TREE_SIZE: {} \n", TREE_SIZE);
         fmt::print("MAX_LEVEL: {} \n", MAX_LEVEL);
+
         // Function to initialize tree addresses
-        
-        
         TREE_START_ADDRESSES = init_tree_addresses(TREE_SIZE);
         IND_TREE_SIZE = DATA_MEM_SIZE / TREE_ROOTS;
+        fmt::print("IND_TREE_SIZE: {} \n", IND_TREE_SIZE);
     }
 
 }

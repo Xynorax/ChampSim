@@ -176,24 +176,32 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
   cpu = fill_mshr.cpu;
   if (this->NAME == "LLC") {
-    if (authenticator.check_authenticated(fill_mshr.llc_address)) {
-      fmt::print("Authenticated!!");
+    bool authenticated = authenticator.check_authenticated(fill_mshr.llc_address);
+    bool ready_for_authentication = authenticator.is_ready_for_authentication(fill_mshr.llc_address);
+    bool authentication_in_progress = authenticator.is_authentication_in_progress(fill_mshr.llc_address);
+    if (authenticated) {
+      fmt::print("Entry {} Authenticated!! \n", fill_mshr.llc_address);
       authenticator.remove_entry(fill_mshr.llc_address);
     }
-    else if (authenticator.is_ready_for_authentication(fill_mshr.llc_address) == false) {
+    else if (!ready_for_authentication) {
       fmt::print("{} Not ready for authentication! \n", fill_mshr.address);
       return false;
     }
-    else {
+    else if (authentication_in_progress) {
+      fmt::print("Authentication in progress! \n");
+      return false;
+    }
+    else if (!authenticated && ready_for_authentication) {
       authenticator.start_authentication(fill_mshr.llc_address, current_time, clock_period);
       fmt::print("Authentication started!");
       return false;
     }
 
   }
+
   if (this->NAME == "tree_cache") {
     fmt::print("Filling tree cache \n");
-    authenticator.set_node_ready(fill_mshr.llc_address, fill_mshr.address, fill_mshr.current_level);
+    authenticator.set_node_ready(fill_mshr.llc_address, fill_mshr.address);
   }
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
@@ -405,11 +413,10 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       fmt::print("current_level:{} \n",current_level);
       fmt::print("llc address:{} \n",mshr_pkt.second.llc_address);
       if (current_level >= 0) {
-        champsim::address llc_addr = mshr_pkt.second.llc_address; 
-        fmt::print("Calling tree addresses generation \n");
+        //fmt::print("Calling tree addresses generation \n");
         std::vector<uint64_t> tree_addresses = generate_tree_addresses(mshr_pkt.second.llc_address);
-        fmt::print("Generated tree addresses \n");
-        fmt::print("tree addresses: {}\n", tree_addresses);
+        //fmt::print("Generated tree addresses \n");
+        //fmt::print("tree addresses: {}\n", tree_addresses);
         uint64_t tree_addr = tree_addresses[mshr_pkt.second.current_level];
         auto tree_handle_pkt = handle_pkt;
         tree_handle_pkt.address = champsim::address(tree_addr);
@@ -417,7 +424,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
         tree_handle_pkt.llc_address = mshr_pkt.second.llc_address;
         tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
         tree_mshr_pkt.second.response_requested = true;
-        fmt::print("adding tree node to authenticator \n");
+        //fmt::print("adding tree node to authenticator \n");
         authenticator.add_tree_node(tree_handle_pkt.llc_address,tree_mshr_pkt.second.address, mshr_pkt.second.current_level);
         if (send_to_rq) {
           // Forward to your custom target (e.g., DRAM RQ)
@@ -451,6 +458,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       authenticator.add_entry(handle_pkt.address);
       tree_mshr_pkt.second.current_level = static_cast<int8_t>(tree::MAX_LEVEL - 2);
       fmt::print("Level sent: {} \n",tree_mshr_pkt.second.current_level );
+      authenticator.add_tree_node(tree_handle_pkt.llc_address,tree_mshr_pkt.second.address, mshr_pkt.first.current_level - 1);
       if (send_to_rq) {
           // Forward to your custom target (e.g., DRAM RQ)
           success2 = lower_level2->add_rq(tree_mshr_pkt.second);
@@ -737,7 +745,7 @@ void CACHE::finish_packet(const response_type& packet)
   if (this->NAME == "tree_cache" || this->NAME == "LLC") {
     DECRYPTION_LATENCY = 20;
   }
-  fmt::print("Cache: {} Packet received from DRAM, address: {}", this->NAME, packet.address);
+  fmt::print("Cache: {} Packet received from DRAM, address: {} \n", this->NAME, packet.address);
   // MSHR holds the most updated information about this request
   mshr_type::returned_value finished_value{packet.data, packet.pf_metadata};
   mshr_entry->data_promise = champsim::waitable{finished_value, current_time + (warmup ? champsim::chrono::clock::duration{} : (FILL_LATENCY + DECRYPTION_LATENCY*clock_period))}; //Sets MSHR data promise to be ready at current time + fill latency

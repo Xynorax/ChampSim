@@ -30,6 +30,7 @@ public:
         bool ready = false;
         uint8_t cached_level = tree::MAX_LEVEL;
         champsim::chrono::clock::time_point auth_compl_time;
+        bool authentication_in_progress;
     };
     std::deque<auth_entry> authentication_queue;
     void add_entry(champsim::address llc_address, bool authenticated = false) {
@@ -39,10 +40,11 @@ public:
         new_entry.cached_level = tree::MAX_LEVEL;
         new_entry.ready = false;
         new_entry.tree_levels.resize(tree::MAX_LEVEL);
+        new_entry.authentication_in_progress = false;
         authentication_queue.push_back(new_entry);
         fmt::print("entry added to authentication queue \n");
-        fmt::print("{} \n",new_entry.cached_level);
-        fmt::print("{} \n",new_entry.ready);
+        //fmt::print("{} \n",new_entry.cached_level);
+        //fmt::print("{} \n",new_entry.ready);
 
     };
 
@@ -52,8 +54,8 @@ public:
                 entry.tree_levels[current_level].address = tree_node_address;
                 entry.tree_levels[current_level].cached = cached;
                 fmt::print("added tree node to authentication queue entry {} \n",llc_address);
-                fmt::print("{} \n",entry.cached_level);
-                fmt::print("{} \n",entry.ready);
+                fmt::print("Cached level: {} \n",entry.cached_level);
+                fmt::print("Entry ready: {} \n",entry.ready);
                 if (cached) {
                     entry.cached_level = current_level;
                 }
@@ -63,6 +65,7 @@ public:
     }
     void update_auth_timer(champsim::chrono::clock::time_point current_time) {
        for (auto& entry : authentication_queue) {
+            if (!entry.authentication_in_progress) return;
             if (current_time >= entry.auth_compl_time) {
                 entry.authenticated = true;
             }
@@ -71,6 +74,7 @@ public:
     void start_authentication(champsim::address llc_address, champsim::chrono::clock::time_point current_time, champsim::chrono::picoseconds clock_period) {
         for (auto& entry : authentication_queue) {
             if (entry.llc_address == llc_address) {
+                entry.authentication_in_progress = true;
                 entry.auth_compl_time = current_time + (AUTHENTICATION_LATENCY * clock_period);
             }
         }
@@ -102,7 +106,7 @@ public:
         //fmt::print("Authentication queue size: {}",authentication_queue.size());
         for (const auto& entry : authentication_queue) {
             for (int j = tree::MAX_LEVEL - 1; j >= 0; j--) {
-                    fmt::print("{} \n",entry.tree_levels[j].ready);
+                    //fmt::print("{} \n",entry.tree_levels[j].ready);
                 }
             if (entry.llc_address == llc_address and entry.ready) {
                 return true;
@@ -110,8 +114,16 @@ public:
         }
         return false;
     }
+    bool is_authentication_in_progress(champsim::address llc_address) {
+        for (const auto& entry : authentication_queue) {
+            if (entry.llc_address == llc_address and entry.authentication_in_progress) {
+                return true;
+            }
+        }
+        return false;
 
-    void set_node_ready(champsim::address llc_address, champsim::address node_address, int8_t current_level) {
+    }
+    void set_node_ready(champsim::address llc_address, champsim::address node_address) {
         for (auto& entry : authentication_queue) {
 
             if (entry.llc_address == llc_address and !entry.ready) {
@@ -125,13 +137,13 @@ public:
                 for (int j = tree::MAX_LEVEL - 1; j >= 0; j--) {
                     fmt::print("set_node_ready function ready: {} \n",entry.tree_levels[j].ready);
                 }
-                for (int j = tree::MAX_LEVEL - 2; j > 0; j--) {
+                for (int j = tree::MAX_LEVEL - 1; j >= 0; j--) {
                     if (entry.tree_levels[j].ready == false) {
                         fmt::print("Node {} is not ready", j);
                         break;
                     }
                     fmt::print("Node {} is ready", j);
-                    if (j == entry.cached_level || j == 1) {
+                    if (j == entry.cached_level || j == 0) {
                         fmt::print("entry {} set to ready for authentication! \n", llc_address);
                         entry.ready = true;
                     }

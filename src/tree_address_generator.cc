@@ -34,7 +34,7 @@ std::vector<uint64_t> generate_tree_addresses(champsim::address address_in){
     uint64_t TreeNodeOffset;
     std::vector<uint64_t> counter_addresses(tree::MAX_LEVEL);
 
-    for (int current_level = tree::MAX_LEVEL-1; current_level>=0; current_level-- ){
+    for (int current_level = 0; current_level<=tree::MAX_LEVEL-1; current_level++ ){
         if(current_level == 0){
             treeNodeAddr = tree::TREE_START_ADDRESSES[root_index];
             tree_level_address = tree::TREE_START_ADDRESSES[root_index];
