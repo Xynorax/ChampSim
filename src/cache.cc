@@ -177,19 +177,23 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   cpu = fill_mshr.cpu;
   if (this->NAME == "LLC") {
     if (authenticator.check_authenticated(fill_mshr.llc_address)) {
-      
+      fmt::print("Authenticated!!");
+      authenticator.remove_entry(fill_mshr.llc_address);
     }
-    else if (authenticator.ready_for_authentication(fill_mshr.llc_address) == false) {
+    else if (authenticator.is_ready_for_authentication(fill_mshr.llc_address) == false) {
+      fmt::print("{} Not ready for authentication! \n", fill_mshr.address);
       return false;
     }
     else {
-      authenticator.start_authentication(fill_mshr.llc_address, current_time);
+      authenticator.start_authentication(fill_mshr.llc_address, current_time, clock_period);
+      fmt::print("Authentication started!");
       return false;
     }
 
   }
   if (this->NAME == "tree_cache") {
-    authenticator.set_node_ready(fill_mshr.llc_address, fill_mshr.address);
+    fmt::print("Filling tree cache \n");
+    authenticator.set_node_ready(fill_mshr.llc_address, fill_mshr.address, fill_mshr.current_level);
   }
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
@@ -365,6 +369,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
   bool mshr_full = (MSHR.size() == MSHR_SIZE); // checks if mshr is full
   bool auth_queue_full = (authenticator.authentication_queue.size() == champsim::AUTHENTICATION_QUEUE_SIZE); // check if authentication queue is full
   if (auth_queue_full && (this->NAME == "tree_cache" || this->NAME == "LLC")) {
+    fmt::print("Authentication queue full");
     return false;
   }
   if (mshr_entry != MSHR.end()) // miss already inflight
@@ -388,7 +393,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 
     bool success = false;
     const bool send_to_rq = (prefetch_as_load || handle_pkt.type != access_type::PREFETCH); // loads and stores go to Request Queue
-    if (this->NAME != "tree_cache") {
+    if (this->NAME != "tree_cache" && this->NAME != "LLC") {
       success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second); 
     }
     bool success2 = true;
@@ -406,16 +411,14 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
         fmt::print("Generated tree addresses \n");
         fmt::print("tree addresses: {}\n", tree_addresses);
         uint64_t tree_addr = tree_addresses[mshr_pkt.second.current_level];
-        fmt::print("Debug! \n");
         auto tree_handle_pkt = handle_pkt;
         tree_handle_pkt.address = champsim::address(tree_addr);
         tree_handle_pkt.current_level = mshr_pkt.second.current_level - 1;  
         tree_handle_pkt.llc_address = mshr_pkt.second.llc_address;
         tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
         tree_mshr_pkt.second.response_requested = true;
-        fmt::print("adding entry to authenticator \n");
+        fmt::print("adding tree node to authenticator \n");
         authenticator.add_tree_node(tree_handle_pkt.llc_address,tree_mshr_pkt.second.address, mshr_pkt.second.current_level);
-        fmt::print("sending to self \n");
         if (send_to_rq) {
           // Forward to your custom target (e.g., DRAM RQ)
           success2 = upper_levels[0]->add_rq(tree_mshr_pkt.second);
@@ -430,7 +433,11 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
     
     if (this->NAME == "LLC" && lower_level2 != nullptr) {
-      
+      mshr_pkt.second.current_level = tree::MAX_LEVEL;
+      mshr_pkt.second.llc_address = handle_pkt.address;
+      mshr_pkt.first.llc_address = handle_pkt.address;
+      mshr_pkt.first.current_level = tree::MAX_LEVEL;
+      success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second); 
       fmt::print("LLC MISS on address {} \n", handle_pkt.address);
       std::vector<uint64_t> tree_addresses = generate_tree_addresses(handle_pkt.address);
       uint64_t tree_addr = tree_addresses[tree::MAX_LEVEL - 1];
@@ -555,7 +562,7 @@ long CACHE::operate()
     q.get().erase(fill_begin, complete_end);
   }
 
-  //authenticator.update_auth_timer(current_time);
+  authenticator.update_auth_timer(current_time);
   // Initiate tag checks
   const champsim::bandwidth::maximum_type bandwidth_from_tag_checks{champsim::to_underlying(MAX_TAG) * (long)(HIT_LATENCY / clock_period)
                                                                     - (long)std::size(inflight_tag_check)};
@@ -730,6 +737,7 @@ void CACHE::finish_packet(const response_type& packet)
   if (this->NAME == "tree_cache" || this->NAME == "LLC") {
     DECRYPTION_LATENCY = 20;
   }
+  fmt::print("Cache: {} Packet received from DRAM, address: {}", this->NAME, packet.address);
   // MSHR holds the most updated information about this request
   mshr_type::returned_value finished_value{packet.data, packet.pf_metadata};
   mshr_entry->data_promise = champsim::waitable{finished_value, current_time + (warmup ? champsim::chrono::clock::duration{} : (FILL_LATENCY + DECRYPTION_LATENCY*clock_period))}; //Sets MSHR data promise to be ready at current time + fill latency

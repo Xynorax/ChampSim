@@ -23,7 +23,6 @@
 std::vector<uint64_t> generate_tree_addresses(champsim::address address_in){
 
     //fmt::print("data memory size {} \n",tree::DATA_MEM_SIZE);
-    fmt::print("Generating tree addresses \n");
     uint64_t address = address_in.to<uint64_t>();
     uint64_t root_index = (tree::IND_TREE_SIZE != 0) ? ((address - tree::MEMORY_START_ADDR) / tree::IND_TREE_SIZE) : ((address - tree::MEMORY_START_ADDR)) ;
     uint64_t tree_offset = root_index * tree::IND_TREE_SIZE;
