@@ -16,8 +16,6 @@ namespace tree{
     const int MEMORY_START_ADDR = 0;
     const int TREE_MEMORY_START_ADDR = 0;
     const int TREE_DATA_SIZE = 8; //Bytes
-    
-    const int BLOCK_SIZE = 64;
 
     //To be calculated parameters
     inline uint64_t DATA_MEM_SIZE = 0;
@@ -27,6 +25,7 @@ namespace tree{
     inline uint8_t MAX_LEVEL = 0;
     inline uint64_t TREE_SIZE = 0;
     inline uint64_t IND_TREE_SIZE = 0;
+    inline uint8_t OFFSET_BITS = 0;
     inline std::vector<uint64_t> TREE_START_ADDRESSES;
     inline uint64_t TREE_SIZE_PART;
     inline std::vector<uint64_t> init_tree_addresses(uint64_t tree_size) {
@@ -42,6 +41,7 @@ namespace tree{
             return addresses;
         }
     inline void initialize(){
+        fmt::print("BLOCK SIZE: {}", BLOCK_SIZE);
         dram_ptr = &global_environment->dram_view();
         auto& mapping = dram_ptr->channels[0].address_mapping;
         auto rows = mapping.rows();
@@ -53,6 +53,7 @@ namespace tree{
         uint64_t channel_width = static_cast<uint64_t>(dram_ptr->channels[0].channel_width.count());
         DATA_MEM_SIZE = rows * columns * banks * bank_groups * ranks * channels * channel_width;
         fmt::print("DATA_MEM_SIZE: {} \n", DATA_MEM_SIZE);
+        OFFSET_BITS = static_cast<uint8_t>(std::floor(std::log2((BLOCK_SIZE))));
         //Calculated Parameters
         TREE_ARITY_BITS = static_cast<uint8_t>(std::floor(std::log2((TREE_ARITY))));
         fmt::print("tree arity bits: {} \n", TREE_ARITY_BITS);
@@ -71,6 +72,9 @@ namespace tree{
         fmt::print("IND_TREE_SIZE: {} \n", IND_TREE_SIZE);
     }
 
+    inline uint64_t shift_address(uint64_t addr) {
+    return addr >> (OFFSET_BITS);
+    }
 }
 
 #endif

@@ -322,7 +322,8 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
       way->prefetch = false;
     }
     if (this->NAME == "tree_cache") {
-      authenticator.add_tree_node(handle_pkt.llc_address, handle_pkt.address ,handle_pkt.current_level, true);
+      authenticator.cache_tree_node(handle_pkt.llc_address, handle_pkt.address ,handle_pkt.current_level+1, true);
+      authenticator.set_node_ready(handle_pkt.llc_address, handle_pkt.address);
 
     }
 }
@@ -425,10 +426,10 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
         tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
         tree_mshr_pkt.second.response_requested = true;
         //fmt::print("adding tree node to authenticator \n");
-        authenticator.add_tree_node(tree_handle_pkt.llc_address,tree_mshr_pkt.second.address, mshr_pkt.second.current_level);
         if (send_to_rq) {
           // Forward to your custom target (e.g., DRAM RQ)
           success2 = upper_levels[0]->add_rq(tree_mshr_pkt.second);
+          fmt::print("Tree Address {} added to RQ",tree_mshr_pkt.second.address);
 
         } else {
           // Maybe still send PQ to DRAM?
@@ -455,13 +456,18 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
       tree_mshr_pkt.second.response_requested = false;
       tree_mshr_pkt.second.llc_address = handle_pkt.address;
-      authenticator.add_entry(handle_pkt.address);
+      authenticator.add_entry(handle_pkt.address, tree_addresses);
       tree_mshr_pkt.second.current_level = static_cast<int8_t>(tree::MAX_LEVEL - 2);
       fmt::print("Level sent: {} \n",tree_mshr_pkt.second.current_level );
-      authenticator.add_tree_node(tree_handle_pkt.llc_address,tree_mshr_pkt.second.address, mshr_pkt.first.current_level - 1);
       if (send_to_rq) {
           // Forward to your custom target (e.g., DRAM RQ)
+          fmt::print("RQ Size before {}",(int)lower_level2->RQ.size());
+          fmt::print("Tree Address {} added to RQ",tree_mshr_pkt.second.address);
           success2 = lower_level2->add_rq(tree_mshr_pkt.second);
+          
+          fmt::print("RQ Size after {}",(int)lower_level2->RQ.size());
+          
+          
 
       } else {
           // Maybe still send PQ to DRAM?
@@ -470,6 +476,11 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   }
     if (!success || !success2) {
+      if (!success2) {
+        fmt::print("Tree Cache RQ failure!");
+        assert(0);
+      }
+      
       return false;
     }
 

@@ -15,7 +15,22 @@ namespace champsim {
 
 class Authenticator {
 public:
-  
+    auto matches_address(champsim::address addr) const {
+    return [match = addr](const auto& entry) {
+        return entry.llc_address == match;
+    };
+    }
+    void debug_print_auth_queue() {
+        fmt::print("Current queue: \n");
+        for (const auto& debug_entry : authentication_queue) {
+            champsim::address llc_addr = debug_entry.llc_address;
+            fmt::print("{:#x}\n", llc_addr.to<uint64_t>());
+            fmt::print("In progress: {} ", debug_entry.authentication_in_progress);
+            fmt::print("Ready for auth: {} ", debug_entry.ready);
+            fmt::print("Cached level: {} ", debug_entry.cached_level);
+            fmt::print("Authenticated: {}\n", debug_entry.authenticated);
+        }
+    }
 
     struct tree_node {
     champsim::address address;
@@ -33,7 +48,15 @@ public:
         bool authentication_in_progress;
     };
     std::deque<auth_entry> authentication_queue;
-    void add_entry(champsim::address llc_address, bool authenticated = false) {
+    void add_entry(champsim::address llc_address,std::vector<uint64_t>tree_addresses, bool authenticated = false) {
+        llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
+        auto entry = std::find_if(std::begin(authentication_queue), std::end(authentication_queue), 
+                                   matches_address(llc_address));
+        if (entry != authentication_queue.end()) {
+        fmt::print(" DUPLICATE FOUND - not adding\n");
+        assert(0);
+        return;  // Don't add another entry
+        }
         auth_entry new_entry;
         new_entry.llc_address = llc_address;
         new_entry.authenticated = authenticated;
@@ -41,37 +64,49 @@ public:
         new_entry.ready = false;
         new_entry.tree_levels.resize(tree::MAX_LEVEL);
         new_entry.authentication_in_progress = false;
+        for (int j = 0; j < tree::MAX_LEVEL; j++) {
+            champsim::address tree_node_address = champsim::address(tree::shift_address(tree_addresses[j]));
+            new_entry.tree_levels[j].address = tree_node_address;
+        }
         authentication_queue.push_back(new_entry);
-        fmt::print("entry added to authentication queue \n");
+        fmt::print("entry added to authentication queue,  \n");
+        debug_print_auth_queue();
         //fmt::print("{} \n",new_entry.cached_level);
         //fmt::print("{} \n",new_entry.ready);
 
     };
 
-    void add_tree_node(champsim::address llc_address, champsim::address tree_node_address, int8_t current_level, bool cached = false) {
+    void cache_tree_node(champsim::address llc_address, champsim::address tree_node_address, int8_t current_level, bool cached = false) {
+        llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
+        tree_node_address = champsim::address(tree::shift_address(tree_node_address.to<uint64_t>()));
+        fmt::print("Adding tree node of level: {}", current_level);
         for (auto& entry : authentication_queue) {
-            if (entry.llc_address == llc_address) {
-                entry.tree_levels[current_level].address = tree_node_address;
-                entry.tree_levels[current_level].cached = cached;
-                fmt::print("added tree node to authentication queue entry {} \n",llc_address);
-                fmt::print("Cached level: {} \n",entry.cached_level);
-                fmt::print("Entry ready: {} \n",entry.ready);
-                if (cached) {
-                    entry.cached_level = current_level;
+            if (cached) {
+                fmt::print("Tree node hit! \n");
+                for (int j = 0; j < tree::MAX_LEVEL; j++) {
+                    fmt::print("Node {} address: {} ", j, entry.tree_levels[j].address);
+                    if (entry.tree_levels[j].address == tree_node_address) {
+                        entry.cached_level = current_level;
+                        entry.tree_levels[current_level].ready = true;
+                    }
                 }
+                
             }
+            fmt::print("Cached level: {} \n",entry.cached_level);
+            fmt::print("Entry ready: {} \n",entry.ready);
         }
-        
     }
+        
     void update_auth_timer(champsim::chrono::clock::time_point current_time) {
        for (auto& entry : authentication_queue) {
-            if (!entry.authentication_in_progress) return;
+            if (!entry.authentication_in_progress) continue;
             if (current_time >= entry.auth_compl_time) {
                 entry.authenticated = true;
             }
         } 
     }
     void start_authentication(champsim::address llc_address, champsim::chrono::clock::time_point current_time, champsim::chrono::picoseconds clock_period) {
+        llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
         for (auto& entry : authentication_queue) {
             if (entry.llc_address == llc_address) {
                 entry.authentication_in_progress = true;
@@ -81,6 +116,7 @@ public:
     }
 
     void remove_entry(champsim::address llc_address) {
+        llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
         auto it = authentication_queue.begin();
         while (it != authentication_queue.end()) {
             if (it ->llc_address == llc_address) {
@@ -94,15 +130,16 @@ public:
     }
 
     bool check_authenticated(champsim::address llc_address) {
+        llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
         for (const auto& entry : authentication_queue) {
             if (entry.llc_address == llc_address) {
                 return entry.authenticated;
             }
         }
-        return false;
+        return true;
     }
     bool is_ready_for_authentication(champsim::address llc_address) {
-        fmt::print("Checking {} if ready for authentication \n",llc_address);
+        llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
         //fmt::print("Authentication queue size: {}",authentication_queue.size());
         for (const auto& entry : authentication_queue) {
             for (int j = tree::MAX_LEVEL - 1; j >= 0; j--) {
@@ -115,22 +152,27 @@ public:
         return false;
     }
     bool is_authentication_in_progress(champsim::address llc_address) {
+        llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
         for (const auto& entry : authentication_queue) {
             if (entry.llc_address == llc_address and entry.authentication_in_progress) {
                 return true;
             }
         }
+        fmt::print("Entry {} not in progress",llc_address );
         return false;
 
     }
     void set_node_ready(champsim::address llc_address, champsim::address node_address) {
+        llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
+        node_address = champsim::address(tree::shift_address(node_address.to<uint64_t>()));
         for (auto& entry : authentication_queue) {
 
-            if (entry.llc_address == llc_address and !entry.ready) {
-                fmt::print("LLC address match in set_node_ready, input node address; {} \n", node_address);
+            if (!entry.ready) {
+                
                 for (int j = 0; j < tree::MAX_LEVEL; j++) {
-                    fmt::print("Node {} address: {}", j, entry.tree_levels[j].address);
+                    fmt::print("Node {} address: {} ", j, entry.tree_levels[j].address);
                     if (entry.tree_levels[j].address == node_address) {
+                        fmt::print("LLC address {} match in set_node_ready, input node address; {} \n",entry.llc_address, node_address);
                         entry.tree_levels[j].ready = true;
                     }
                 }
@@ -144,8 +186,9 @@ public:
                     }
                     fmt::print("Node {} is ready", j);
                     if (j == entry.cached_level || j == 0) {
-                        fmt::print("entry {} set to ready for authentication! \n", llc_address);
+                        fmt::print("entry {} set to ready for authentication! \n", entry.llc_address);
                         entry.ready = true;
+                        debug_print_auth_queue();
                     }
                 }
             }
