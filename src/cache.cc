@@ -382,6 +382,22 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
   bool success2 = true;
   const bool send_to_rq = (prefetch_as_load || handle_pkt.type != access_type::PREFETCH); // loads and stores go to Request Queue
   
+  //Check RQs capacities
+  bool tree_rq_has_space = send_to_rq ? 
+  (upper_levels[0]->rq_occupancy() < upper_levels[0]->rq_size() ) :
+  (upper_levels[0]->pq_occupancy() < upper_levels[0]->pq_size() );
+
+  // Check DRAM RQ capacity
+  bool dram_rq_has_space = send_to_rq ?
+      (lower_level->rq_occupancy()  < lower_level->rq_size()) :
+      (lower_level->pq_occupancy() < lower_level->pq_size() );
+
+  if (!tree_rq_has_space || !dram_rq_has_space) {
+      fmt::print("Queues full - tree_rq: {}/{}, dram_rq: {}/{} - will retry\n",
+                upper_levels[0]->rq_size(), upper_levels[0]->rq_size(),
+                lower_level->rq_size(), lower_level->rq_size());
+      return false;  // Don't proceed if either queue is full
+  }
   auto send_next_node = [&]() {
     if (this->NAME == "tree_cache") {
       
