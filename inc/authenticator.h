@@ -76,25 +76,28 @@ public:
 
     };
 
-    void cache_tree_node(champsim::address llc_address, champsim::address tree_node_address, int8_t current_level, bool cached = false) {
+    void cache_tree_node(champsim::address llc_address, champsim::address tree_node_address, int8_t current_level) {
         llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
         tree_node_address = champsim::address(tree::shift_address(tree_node_address.to<uint64_t>()));
-        fmt::print("Adding tree node of level: {}", current_level);
+        fmt::print("Caching tree node of level: {}", current_level);
         for (auto& entry : authentication_queue) {
-            if (cached) {
-                fmt::print("Tree node hit! \n");
-                for (int j = 0; j < tree::MAX_LEVEL; j++) {
-                    fmt::print("Node {} address: {} ", j, entry.tree_levels[j].address);
-                    if (entry.tree_levels[j].address == tree_node_address) {
-                        entry.cached_level = current_level;
-                        entry.tree_levels[current_level].ready = true;
-                    }
+            fmt::print("Entry: {}", entry.llc_address );
+            for (int j = tree::MAX_LEVEL-1; j>=0 ; j--) {
+                fmt::print("Node {} address: {} ", j, entry.tree_levels[j].address);
+                if (entry.cached_level == j) break; // Dont set another cached level if already set
+                if (entry.tree_levels[j].address == tree_node_address) {
+                    fmt::print("Tree node hit! \n");
+                    entry.cached_level = current_level;
+                    entry.tree_levels[current_level].ready = true;
+                    break;
                 }
                 
             }
             fmt::print("Cached level: {} \n",entry.cached_level);
             fmt::print("Entry ready: {} \n",entry.ready);
+            
         }
+
     }
         
     void update_auth_timer(champsim::chrono::clock::time_point current_time) {
@@ -184,7 +187,7 @@ public:
                         fmt::print("Node {} is not ready", j);
                         break;
                     }
-                    fmt::print("Node {} is ready", j);
+                    fmt::print("Node {} is ready ", j);
                     if (j == entry.cached_level || j == 0) {
                         fmt::print("entry {} set to ready for authentication! \n", entry.llc_address);
                         entry.ready = true;
