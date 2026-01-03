@@ -21,7 +21,7 @@ public:
     };
     }
     void debug_print_auth_queue() {
-        fmt::print("Current queue: \n");
+        //fmt::print("Current queue: \n");
         for (const auto& debug_entry : authentication_queue) {
             champsim::address llc_addr = debug_entry.llc_address;
             fmt::print("{:#x}\n", llc_addr.to<uint64_t>());
@@ -53,7 +53,7 @@ public:
         auto entry = std::find_if(std::begin(authentication_queue), std::end(authentication_queue), 
                                    matches_address(llc_address));
         if (entry != authentication_queue.end()) {
-        fmt::print(" DUPLICATE FOUND - not adding\n");
+        //fmt::print(" DUPLICATE FOUND - not adding\n");
         assert(0);
         return;  // Don't add another entry
         }
@@ -69,8 +69,8 @@ public:
             new_entry.tree_levels[j].address = tree_node_address;
         }
         authentication_queue.push_back(new_entry);
-        fmt::print("entry added to authentication queue,  \n");
-        debug_print_auth_queue();
+        //fmt::print("entry added to authentication queue,  \n");
+        //debug_print_auth_queue();
         //fmt::print("{} \n",new_entry.cached_level);
         //fmt::print("{} \n",new_entry.ready);
 
@@ -79,22 +79,22 @@ public:
     void cache_tree_node(champsim::address llc_address, champsim::address tree_node_address, int8_t current_level) {
         llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
         tree_node_address = champsim::address(tree::shift_address(tree_node_address.to<uint64_t>()));
-        fmt::print("Caching tree node of level: {}", current_level);
+        //fmt::print("Caching tree node of level: {}", current_level);
         for (auto& entry : authentication_queue) {
-            fmt::print("Entry: {}", entry.llc_address );
+            //fmt::print("Entry: {}", entry.llc_address );
             for (int j = tree::MAX_LEVEL-1; j>=0 ; j--) {
-                fmt::print("Node {} address: {} ", j, entry.tree_levels[j].address);
+                //fmt::print("Node {} address: {} ", j, entry.tree_levels[j].address);
                 if (entry.cached_level == j) break; // Dont set another cached level if already set
                 if (entry.tree_levels[j].address == tree_node_address) {
-                    fmt::print("Tree node hit! \n");
+                    //fmt::print("Tree node hit! \n");
                     entry.cached_level = current_level;
                     entry.tree_levels[current_level].ready = true;
                     break;
                 }
                 
             }
-            fmt::print("Cached level: {} \n",entry.cached_level);
-            fmt::print("Entry ready: {} \n",entry.ready);
+            //fmt::print("Cached level: {} \n",entry.cached_level);
+            //fmt::print("Entry ready: {} \n",entry.ready);
             
         }
 
@@ -161,7 +161,7 @@ public:
                 return true;
             }
         }
-        fmt::print("Entry {} not in progress",llc_address );
+        //fmt::print("Entry {} not in progress",llc_address );
         return false;
 
     }
@@ -173,25 +173,25 @@ public:
             if (!entry.ready) {
                 
                 for (int j = 0; j < tree::MAX_LEVEL; j++) {
-                    fmt::print("Node {} address: {} ", j, entry.tree_levels[j].address);
+                    //fmt::print("Node {} address: {} ", j, entry.tree_levels[j].address);
                     if (entry.tree_levels[j].address == node_address) {
-                        fmt::print("LLC address {} match in set_node_ready, input node address; {} \n",entry.llc_address, node_address);
+                        //fmt::print("LLC address {} match in set_node_ready, input node address; {} \n",entry.llc_address, node_address);
                         entry.tree_levels[j].ready = true;
                     }
                 }
                 for (int j = tree::MAX_LEVEL - 1; j >= 0; j--) {
-                    fmt::print("set_node_ready function ready: {} \n",entry.tree_levels[j].ready);
+                    //fmt::print("set_node_ready function ready: {} \n",entry.tree_levels[j].ready);
                 }
                 for (int j = tree::MAX_LEVEL - 1; j >= 0; j--) {
                     if (entry.tree_levels[j].ready == false) {
-                        fmt::print("Node {} is not ready", j);
+                        //fmt::print("Node {} is not ready", j);
                         break;
                     }
-                    fmt::print("Node {} is ready ", j);
+                    //fmt::print("Node {} is ready ", j);
                     if (j == entry.cached_level || j == 0) {
-                        fmt::print("entry {} set to ready for authentication! \n", entry.llc_address);
+                        //fmt::print("entry {} set to ready for authentication! \n", entry.llc_address);
                         entry.ready = true;
-                        debug_print_auth_queue();
+                        //debug_print_auth_queue();
                     }
                 }
             }
