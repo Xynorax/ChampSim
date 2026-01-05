@@ -99,14 +99,14 @@ auto CACHE::operator=(CACHE&& other) -> CACHE&
 CACHE::tag_lookup_type::tag_lookup_type(const request_type& req, bool local_pref, bool skip)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
       type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me),current_level(req.current_level)
-      ,llc_address(req.llc_address)
+      ,llc_address(req.llc_address),write_tree_cache(req.write_tree_cache)
 {
 }
 
 CACHE::mshr_type::mshr_type(const tag_lookup_type& req, champsim::chrono::clock::time_point _time_enqueued)
     : address(req.address), v_address(req.v_address), ip(req.ip), instr_id(req.instr_id), cpu(req.cpu), type(req.type),
       prefetch_from_this(req.prefetch_from_this), time_enqueued(_time_enqueued), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return),current_level(req.current_level)
-      ,llc_address(req.llc_address)
+      ,llc_address(req.llc_address),write_tree_cache(req.write_tree_cache)
 {
 }
 
@@ -188,7 +188,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       return false;
     }
     else if (authentication_in_progress) {
-      //fmt::print("Authentication in progress! \n");
+      //mt::print("Authentication in progress! \n");
       return false;
     }
     else if (!authenticated && ready_for_authentication) {
@@ -202,6 +202,21 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   if (this->NAME == "tree_cache") {
     //fmt::print("Filling tree cache \n");
     authenticator.set_node_ready(fill_mshr.llc_address, fill_mshr.address);
+    if (fill_mshr.write_tree_cache) {
+      request_type tree_handle_pkt;
+      tree_handle_pkt.asid[0] = 0;  // Irrelevent 
+      tree_handle_pkt.asid[1] = 0;  // Irrelevent 
+      tree_handle_pkt.address = fill_mshr.address;
+      tree_handle_pkt.cpu = fill_mshr.cpu;
+      tree_handle_pkt.instr_id = fill_mshr.instr_id;
+      tree_handle_pkt.ip = champsim::address{0}; //Not needed by the rest of the hierarchy
+      tree_handle_pkt.type = access_type::WRITE;
+      tree_handle_pkt.response_requested = false;
+      tree_handle_pkt.current_level = fill_mshr.current_level;
+      tree_handle_pkt.llc_address = fill_mshr.llc_address;
+      tree_handle_pkt.write_tree_cache = false;
+      upper_levels[0]->add_wq(tree_handle_pkt);
+    }
   }
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
@@ -223,6 +238,20 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   }
 
   if (way != set_end && way->valid && way->dirty) {
+          //Check RQs capacities
+    bool tree_rq_has_space = (this->NAME == "LLC") ?
+    (lower_level2->rq_occupancy() < lower_level2->rq_size() ):
+    true;
+
+    // Check DRAM RQ capacity
+    bool dram_wq_has_space = 
+        (lower_level->wq_occupancy()  < lower_level->wq_size());
+
+    if (!tree_rq_has_space || !dram_wq_has_space) {
+        fmt::print("Queues full - tree_wq, dram_wq - will retry\n");
+        return false;  // Don't proceed if either queue is full
+    }
+
     request_type writeback_packet;
 
     writeback_packet.cpu = fill_mshr.cpu;
@@ -240,6 +269,33 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     }
 
     auto success = lower_level->add_wq(writeback_packet);
+    auto success2 = true;
+
+    if (this->NAME == "LLC") {
+      //fmt::print("Line in LLC evicted, updating parent tree nodes!\n");
+      for (int8_t level = static_cast<int8_t>(tree::MAX_LEVEL - 1); level >=0; level--) {
+        std::vector<uint64_t> tree_addresses = generate_tree_addresses(writeback_packet.address);
+        request_type tree_handle_pkt;
+        tree_handle_pkt.asid[0] = 0;  // Irrelevent 
+        tree_handle_pkt.asid[1] = 0;  // Irrelevent 
+        tree_handle_pkt.address = champsim::address(tree_addresses[level]);
+        tree_handle_pkt.cpu = fill_mshr.cpu;
+        tree_handle_pkt.instr_id = fill_mshr.instr_id;
+        tree_handle_pkt.ip = champsim::address{0}; //Not needed by the rest of the hierarchy
+        tree_handle_pkt.type = access_type::LOAD;
+        tree_handle_pkt.response_requested = false;
+        tree_handle_pkt.current_level = level - 1;
+        tree_handle_pkt.llc_address = champsim::address(tree_addresses[tree::MAX_LEVEL-1]);
+        tree_handle_pkt.write_tree_cache = true;
+        success2 = lower_level2->add_rq(tree_handle_pkt);
+        //fmt::print("Adding to RQ parent tree node {}\n", level);
+        if (!success2) {
+          fmt::print("Failed to add to RQ parent tree node");
+          return false;
+        }
+      }
+    }
+
     if (!success) {
       return false;
     }
@@ -324,7 +380,21 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     if (this->NAME == "tree_cache") {
       authenticator.cache_tree_node(handle_pkt.llc_address, handle_pkt.address ,handle_pkt.current_level+1);
       authenticator.set_node_ready(handle_pkt.llc_address, handle_pkt.address);
-
+      if (handle_pkt.write_tree_cache) {
+          request_type tree_handle_pkt;
+          tree_handle_pkt.asid[0] = 0;  // Irrelevent 
+          tree_handle_pkt.asid[1] = 0;  // Irrelevent 
+          tree_handle_pkt.address = handle_pkt.address;
+          tree_handle_pkt.cpu = handle_pkt.cpu;
+          tree_handle_pkt.instr_id = handle_pkt.instr_id;
+          tree_handle_pkt.ip = champsim::address{0}; //Not needed by the rest of the hierarchy
+          tree_handle_pkt.type = access_type::WRITE;
+          tree_handle_pkt.response_requested = false;
+          tree_handle_pkt.current_level = handle_pkt.current_level;
+          tree_handle_pkt.llc_address = handle_pkt.llc_address;
+          tree_handle_pkt.write_tree_cache = false;
+          upper_levels[0]->add_wq(tree_handle_pkt);
+        }
     }
 }
 
@@ -354,6 +424,7 @@ auto CACHE::mshr_and_forward_packet(const tag_lookup_type& handle_pkt) -> std::p
 
   fwd_pkt.current_level = handle_pkt.current_level;
   fwd_pkt.llc_address = handle_pkt.llc_address;
+  fwd_pkt.write_tree_cache = handle_pkt.write_tree_cache;
   return std::pair{std::move(to_allocate), std::move(fwd_pkt)};
 }
 
@@ -438,7 +509,10 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
   if (mshr_entry != MSHR.end()) // miss already inflight
   {
     //fmt::print("mshr entry already exists");
-    send_next_node();
+    if (!handle_pkt.write_tree_cache) {
+      send_next_node();
+    }
+    
     if (mshr_entry->type == access_type::PREFETCH && handle_pkt.type != access_type::PREFETCH) {
       // Mark the prefetch as useful
       if (mshr_entry->prefetch_from_this) {

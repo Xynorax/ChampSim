@@ -144,7 +144,9 @@ public:
     bool is_ready_for_authentication(champsim::address llc_address) {
         llc_address = champsim::address(tree::shift_address(llc_address.to<uint64_t>()));
         //fmt::print("Authentication queue size: {}",authentication_queue.size());
+        //fmt::print("Checking if ready for autehntication!\n");
         for (const auto& entry : authentication_queue) {
+            //fmt::print("Entry: {} \n",entry.llc_address);
             for (int j = tree::MAX_LEVEL - 1; j >= 0; j--) {
                     //fmt::print("{} \n",entry.tree_levels[j].ready);
                 }
