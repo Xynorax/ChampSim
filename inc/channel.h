@@ -69,6 +69,7 @@ class channel
     std::vector<uint64_t> instr_depend_on_me{};
     int8_t current_level = 0;
     champsim::address llc_address{};
+    bool write_tree_cache = false;
   };
 
   struct response {

@@ -82,6 +82,7 @@ class CACHE : public champsim::operable
     
     int8_t current_level;
     champsim::address llc_address;
+    bool write_tree_cache = false;
     explicit tag_lookup_type(request_type req) : tag_lookup_type(req, false, false) {}
     tag_lookup_type(const request_type& req, bool local_pref, bool skip);
   };
@@ -111,6 +112,7 @@ public:
     std::vector<std::deque<response_type>*> to_return{};
     int8_t current_level;
     champsim::address llc_address;
+    bool write_tree_cache = false;
 
     mshr_type(const tag_lookup_type& req, champsim::chrono::clock::time_point _time_enqueued);
     static mshr_type merge(mshr_type predecessor, mshr_type successor);
