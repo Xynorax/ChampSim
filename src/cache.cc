@@ -188,7 +188,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       return false;
     }
     else if (authentication_in_progress) {
-      //mt::print("Authentication in progress! \n");
+      //fmt::print("Authentication in progress! \n");
       return false;
     }
     else if (!authenticated && ready_for_authentication) {
@@ -483,6 +483,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
         tree_handle_pkt.address = champsim::address(tree_addr);
         tree_handle_pkt.current_level = handle_pkt.current_level - 1;  
         tree_handle_pkt.llc_address = handle_pkt.llc_address;
+        tree_handle_pkt.to_return.clear();
         tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
         tree_mshr_pkt.second.response_requested = true;
         //fmt::print("adding tree node to authenticator \n");
@@ -538,8 +539,9 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     
 
     if (this->NAME == "tree_cache") {
-      //fmt::print("tree_cache miss on address {} \n", handle_pkt.address);
+      //fmt::print("tree_cache miss on address {}, adding missed address to RQ \n", handle_pkt.address);
       success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second);
+      //fmt::print("RQ Size after {}",(int)lower_level->RQ.size());
       send_next_node();
     }
     
@@ -560,6 +562,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       tree_handle_pkt.address = champsim::address(tree_addr);
       tree_handle_pkt.current_level = static_cast<int8_t>(tree::MAX_LEVEL - 2);
       tree_handle_pkt.llc_address = handle_pkt.address;
+      tree_handle_pkt.to_return.clear();
       tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
       tree_mshr_pkt.second.response_requested = false;
       tree_mshr_pkt.second.llc_address = handle_pkt.address;

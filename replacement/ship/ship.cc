@@ -62,8 +62,11 @@ void ship::update_replacement_state(uint32_t triggering_cpu, long set, long way,
       return x.valid && x.address.slice_upper(shamt) == addr.slice_upper(shamt);
     });
     if (match != s_set_end) {
-      auto SHCT_idx = match->ip.slice_lower<32_b>().to<std::size_t>() % SHCT_PRIME;
-      SHCT[triggering_cpu][SHCT_idx]--;
+      if (match->used == false && match->valid) {
+        auto SHCT_idx = match->ip.slice_lower<32_b>().to<std::size_t>() % SHCT_PRIME;
+        SHCT[triggering_cpu][SHCT_idx]--;
+      }
+      
 
       match->used = true;
     } else {
@@ -90,8 +93,12 @@ void ship::update_replacement_state(uint32_t triggering_cpu, long set, long way,
     // SHIP prediction
     auto SHCT_idx = ip.slice_lower<32_b>().to<std::size_t>() % SHCT_PRIME;
 
-    get_rrpv(set, way) = maxRRPV - 1;
-    if (SHCT[triggering_cpu][SHCT_idx].is_max())
-      get_rrpv(set, way) = maxRRPV;
+    if (SHCT[triggering_cpu][SHCT_idx] == 0) {
+    get_rrpv(set, way) = 0;  
+    } else if (SHCT[triggering_cpu][SHCT_idx].is_max()) {
+        get_rrpv(set, way) = maxRRPV;  
+    } else {
+        get_rrpv(set, way) = maxRRPV - 1;  
+    }
   }
 }
