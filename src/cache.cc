@@ -180,20 +180,20 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     bool ready_for_authentication = authenticator.is_ready_for_authentication(fill_mshr.llc_address);
     bool authentication_in_progress = authenticator.is_authentication_in_progress(fill_mshr.llc_address);
     if (authenticated) {
-      fmt::print("Entry {} Authenticated!! \n", fill_mshr.llc_address);
+      //fmt::print("Entry {} Authenticated!! \n", fill_mshr.llc_address);
       authenticator.remove_entry(fill_mshr.llc_address);
     }
     else if (!ready_for_authentication) {
-      fmt::print("{} Not ready for authentication! \n", fill_mshr.address);
+      //fmt::print("{} Not ready for authentication! \n", fill_mshr.address);
       return false;
     }
     else if (authentication_in_progress) {
-      fmt::print("Authentication in progress! \n");
+      //fmt::print("Authentication in progress! \n");
       return false;
     }
     else if (!authenticated && ready_for_authentication) {
       authenticator.start_authentication(fill_mshr.llc_address, current_time, clock_period);
-      fmt::print("Authentication started!");
+      //fmt::print("Authentication started!");
       return false;
     }
 
@@ -222,11 +222,11 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
   auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
   if (way == set_end) {
-    fmt::print("Finding victim");
+    //fmt::print("Finding victim");
     long way_number = impl_find_victim(fill_mshr.cpu, fill_mshr.instr_id, get_set_index(fill_mshr.address), &*set_begin, fill_mshr.ip,
-                                                fill_mshr.address, fill_mshr.type, fill_mshr.current_level);
+                                                fill_mshr.address, fill_mshr.type, fill_mshr.current_level + 1);
     way = std::next(set_begin, way_number);
-    fmt::print("Victim: {}", way_number);
+    //fmt::print("Victim: {}", way_number);
   }
   assert(set_begin <= way);
   assert(way <= set_end);
