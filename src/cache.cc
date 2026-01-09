@@ -180,20 +180,20 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     bool ready_for_authentication = authenticator.is_ready_for_authentication(fill_mshr.llc_address);
     bool authentication_in_progress = authenticator.is_authentication_in_progress(fill_mshr.llc_address);
     if (authenticated) {
-      //fmt::print("Entry {} Authenticated!! \n", fill_mshr.llc_address);
+      fmt::print("Entry {} Authenticated!! \n", fill_mshr.llc_address);
       authenticator.remove_entry(fill_mshr.llc_address);
     }
     else if (!ready_for_authentication) {
-      //fmt::print("{} Not ready for authentication! \n", fill_mshr.address);
+      fmt::print("{} Not ready for authentication! \n", fill_mshr.address);
       return false;
     }
     else if (authentication_in_progress) {
-      //fmt::print("Authentication in progress! \n");
+      fmt::print("Authentication in progress! \n");
       return false;
     }
     else if (!authenticated && ready_for_authentication) {
       authenticator.start_authentication(fill_mshr.llc_address, current_time, clock_period);
-      //fmt::print("Authentication started!");
+      fmt::print("Authentication started!");
       return false;
     }
 
@@ -222,8 +222,11 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
   auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
   if (way == set_end) {
-    way = std::next(set_begin, impl_find_victim(fill_mshr.cpu, fill_mshr.instr_id, get_set_index(fill_mshr.address), &*set_begin, fill_mshr.ip,
-                                                fill_mshr.address, fill_mshr.type));
+    fmt::print("Finding victim");
+    long way_number = impl_find_victim(fill_mshr.cpu, fill_mshr.instr_id, get_set_index(fill_mshr.address), &*set_begin, fill_mshr.ip,
+                                                fill_mshr.address, fill_mshr.type, fill_mshr.current_level);
+    way = std::next(set_begin, way_number);
+    fmt::print("Victim: {}", way_number);
   }
   assert(set_begin <= way);
   assert(way <= set_end);
@@ -309,7 +312,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   auto metadata_thru = impl_prefetcher_cache_fill(module_address(fill_mshr), get_set_index(fill_mshr.address), way_idx,
                                                   (fill_mshr.type == access_type::PREFETCH), evicting_address, fill_mshr.data_promise->pf_metadata);
   impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, module_address(fill_mshr), fill_mshr.ip, evicting_address,
-                              fill_mshr.type);
+                              fill_mshr.type, fill_mshr.current_level+1);
 
   if (way != set_end) {
     if (way->valid && way->prefetch) {
@@ -360,7 +363,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   // update replacement policy
   const auto way_idx = std::distance(set_begin, way);
   impl_update_replacement_state(handle_pkt.cpu, get_set_index(handle_pkt.address), way_idx, module_address(handle_pkt), handle_pkt.ip, {}, handle_pkt.type,
-                                hit);
+                                hit, handle_pkt.current_level+1);
 
   if (hit) {
     sim_stats.hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
@@ -1072,21 +1075,21 @@ void CACHE::impl_prefetcher_branch_operate(champsim::address ip, uint8_t branch_
 void CACHE::impl_initialize_replacement() const { repl_module_pimpl->impl_initialize_replacement(); }
 
 long CACHE::impl_find_victim(uint32_t triggering_cpu, uint64_t instr_id, long set, const BLOCK* current_set, champsim::address ip, champsim::address full_addr,
-                             access_type type) const
+                             access_type type, int8_t node_level=tree::MAX_LEVEL) const
 {
-  return repl_module_pimpl->impl_find_victim(triggering_cpu, instr_id, set, current_set, ip, full_addr, type);
+  return repl_module_pimpl->impl_find_victim(triggering_cpu, instr_id, set, current_set, ip, full_addr, type, node_level);
 }
 
 void CACHE::impl_update_replacement_state(uint32_t triggering_cpu, long set, long way, champsim::address full_addr, champsim::address ip,
-                                          champsim::address victim_addr, access_type type, bool hit) const
+                                          champsim::address victim_addr, access_type type, bool hit, int8_t node_level=tree::MAX_LEVEL) const
 {
-  repl_module_pimpl->impl_update_replacement_state(triggering_cpu, set, way, full_addr, ip, victim_addr, type, hit);
+  repl_module_pimpl->impl_update_replacement_state(triggering_cpu, set, way, full_addr, ip, victim_addr, type, hit, node_level);
 }
 
 void CACHE::impl_replacement_cache_fill(uint32_t triggering_cpu, long set, long way, champsim::address full_addr, champsim::address ip,
-                                        champsim::address victim_addr, access_type type) const
+                                        champsim::address victim_addr, access_type type, int8_t node_level=tree::MAX_LEVEL) const
 {
-  repl_module_pimpl->impl_replacement_cache_fill(triggering_cpu, set, way, full_addr, ip, victim_addr, type);
+  repl_module_pimpl->impl_replacement_cache_fill(triggering_cpu, set, way, full_addr, ip, victim_addr, type, node_level);
 }
 
 void CACHE::impl_replacement_final_stats() const { repl_module_pimpl->impl_replacement_final_stats(); }

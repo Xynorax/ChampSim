@@ -2,7 +2,7 @@
 #define TREE_CONFIG_H
 #include <bit>
 #include <cmath>
-#include <environment.h>
+#include "environment.h"
 #include "champsim.h"
 #include "cache.h"
 #include <fmt/core.h>
@@ -28,6 +28,7 @@ namespace tree{
     inline uint8_t OFFSET_BITS = 0;
     inline std::vector<uint64_t> TREE_START_ADDRESSES;
     inline uint64_t TREE_SIZE_PART;
+    inline std::vector<uint64_t> levels_counter;
     inline std::vector<uint64_t> init_tree_addresses(uint64_t tree_size) {
             std::vector<uint64_t> addresses(TREE_ROOTS);
             addresses[0] = TREE_MEMORY_START_ADDR; // Start at 0 because tree nodes have a separate memory else start at MEMORY_START_ADDR + DATA_MEM_SIZE
@@ -70,6 +71,7 @@ namespace tree{
         TREE_START_ADDRESSES = init_tree_addresses(TREE_SIZE);
         IND_TREE_SIZE = DATA_MEM_SIZE / TREE_ROOTS;
         fmt::print("IND_TREE_SIZE: {} \n", IND_TREE_SIZE);
+        levels_counter.resize(tree::MAX_LEVEL, 0);;
     }
 
     inline uint64_t shift_address(uint64_t addr) {
