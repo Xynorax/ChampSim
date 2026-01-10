@@ -240,10 +240,13 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
                (fill_mshr.time_enqueued.time_since_epoch()) / clock_period, (current_time.time_since_epoch()) / clock_period);
   }
 
+  // If eviction of a dirty line
   if (way != set_end && way->valid && way->dirty) {
           //Check RQs capacities
     bool tree_rq_has_space = (this->NAME == "LLC") ?
     (lower_level2->rq_occupancy() < lower_level2->rq_size() ):
+    (this->NAME == "tree_cache") ?
+    (upper_levels[0]->rq_occupancy() < upper_levels[0]->rq_size()) :
     true;
 
     // Check DRAM RQ capacity
@@ -251,7 +254,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
         (lower_level->wq_occupancy()  < lower_level->wq_size());
 
     if (!tree_rq_has_space || !dram_wq_has_space) {
-        fmt::print("Queues full - tree_wq, dram_wq - will retry\n");
+        fmt::print("Queues full - tree_rq, dram_wq - will retry\n");
         return false;  // Don't proceed if either queue is full
     }
 
@@ -274,29 +277,33 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     auto success = lower_level->add_wq(writeback_packet);
     auto success2 = true;
 
-    if (this->NAME == "LLC") {
+    if (this->NAME == "LLC" || this->NAME == "tree_cache" ) {
       //fmt::print("Line in LLC evicted, updating parent tree nodes!\n");
-      for (int8_t level = static_cast<int8_t>(tree::MAX_LEVEL - 1); level >=0; level--) {
+      if(writeback_packet.current_level >=0) {
         std::vector<uint64_t> tree_addresses = generate_tree_addresses(writeback_packet.address);
         request_type tree_handle_pkt;
         tree_handle_pkt.asid[0] = 0;  // Irrelevent 
         tree_handle_pkt.asid[1] = 0;  // Irrelevent 
-        tree_handle_pkt.address = champsim::address(tree_addresses[level]);
+        tree_handle_pkt.address = champsim::address(tree_addresses[writeback_packet.current_level]);
         tree_handle_pkt.cpu = fill_mshr.cpu;
         tree_handle_pkt.instr_id = fill_mshr.instr_id;
         tree_handle_pkt.ip = champsim::address{0}; //Not needed by the rest of the hierarchy
         tree_handle_pkt.type = access_type::LOAD;
         tree_handle_pkt.response_requested = false;
-        tree_handle_pkt.current_level = level - 1;
+        tree_handle_pkt.current_level = writeback_packet.current_level - 1;
         tree_handle_pkt.llc_address = champsim::address(tree_addresses[tree::MAX_LEVEL-1]);
         tree_handle_pkt.write_tree_cache = true;
-        success2 = lower_level2->add_rq(tree_handle_pkt);
+        if( this->NAME == "LLC" )
+          success2 = lower_level2->add_rq(tree_handle_pkt);
+        else if (this->NAME == "tree_cache")
+          success2 = upper_levels[0]->add_rq(tree_handle_pkt);
         //fmt::print("Adding to RQ parent tree node {}\n", level);
         if (!success2) {
           fmt::print("Failed to add to RQ parent tree node");
           return false;
-        }
+        } 
       }
+
     }
 
     if (!success) {
@@ -489,6 +496,8 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
         tree_handle_pkt.to_return.clear();
         tree_mshr_pkt = mshr_and_forward_packet(tree_handle_pkt);
         tree_mshr_pkt.second.response_requested = true;
+        tree_mshr_pkt.first.write_tree_cache = handle_pkt.write_tree_cache;
+        tree_mshr_pkt.second.write_tree_cache = handle_pkt.write_tree_cache;
         //fmt::print("adding tree node to authenticator \n");
         if (send_to_rq) {
           // Forward to your custom target (e.g., DRAM RQ)
@@ -554,7 +563,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       mshr_pkt.first.llc_address = handle_pkt.address;
       mshr_pkt.first.current_level = tree::MAX_LEVEL;
       success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second); 
-      //fmt::print("\n LLC MISS on address {} \n", handle_pkt.address);
+      fmt::print("\n LLC MISS on address {} \n", handle_pkt.address);
       //fmt::print(" \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n");
       if (tree::shift_address(handle_pkt.address.to<uint64_t>() == 0xc940b24)) {
         //fmt::print(" \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n");
