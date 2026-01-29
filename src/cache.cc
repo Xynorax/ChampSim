@@ -38,7 +38,7 @@
 CACHE::CACHE(CACHE&& other) // constructor of the CACHE class, && means it is an rvalue reference to another cache object used for moving its resources isntead of copying them
     : operable(other),
 
-      upper_levels(std::move(other.upper_levels)), lower_level(std::move(other.lower_level)),lower_level2(std::move(other.lower_level2)), lower_translate(std::move(other.lower_translate)),
+      upper_levels(std::move(other.upper_levels)), lower_level(std::move(other.lower_level)),lower_level2(std::move(other.lower_level2)), lower_level3(std::move(other.lower_level3)), lower_level4(std::move(other.lower_level4)), lower_translate(std::move(other.lower_translate)),
 
       cpu(other.cpu), NAME(std::move(other.NAME)), NUM_SET(other.NUM_SET), NUM_WAY(other.NUM_WAY), MSHR_SIZE(other.MSHR_SIZE), PQ_SIZE(other.PQ_SIZE),
       HIT_LATENCY(other.HIT_LATENCY), FILL_LATENCY(other.FILL_LATENCY), OFFSET_BITS(other.OFFSET_BITS), block(std::move(other.block)), MAX_TAG(other.MAX_TAG),
@@ -62,6 +62,8 @@ auto CACHE::operator=(CACHE&& other) -> CACHE&
   this->upper_levels = std::move(other.upper_levels);
   this->lower_level = std::move(other.lower_level);
   this->lower_level2 = std::move(other.lower_level2);
+  this->lower_level3 = std::move(other.lower_level3);
+  this->lower_level4 = std::move(other.lower_level4);
   this->lower_translate = std::move(other.lower_translate);
 
   this->cpu = other.cpu;
@@ -199,7 +201,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 
   }
 
-  if (this->NAME == "tree_cache") {
+  if (this->NAME == "tree_cache8" || this->NAME == "tree_cache7" || this->NAME == "tree_cache6") {
     //fmt::print("Filling tree cache \n");
     authenticator.set_node_ready(fill_mshr.llc_address, fill_mshr.address);
     if (fill_mshr.write_tree_cache) {
@@ -245,7 +247,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
           //Check RQs capacities
     bool tree_rq_has_space = (this->NAME == "LLC") ?
     (lower_level2->rq_occupancy() < lower_level2->rq_size() ):
-    (this->NAME == "tree_cache") ?
+    (this->NAME == "tree_cache8" || this->NAME == "tree_cache7" || this->NAME == "tree_cache6") ?
     (upper_levels[0]->rq_occupancy() < upper_levels[0]->rq_size()) :
     true;
 
@@ -277,7 +279,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     auto success = lower_level->add_wq(writeback_packet);
     auto success2 = true;
 
-    if (this->NAME == "LLC" || this->NAME == "tree_cache" ) {
+    if (this->NAME == "LLC" || this->NAME == "tree_cache8" || this->NAME == "tree_cache7" || this->NAME == "tree_cache6" ) {
       //fmt::print("Line in LLC evicted, updating parent tree nodes!\n");
       if(writeback_packet.current_level >=0) {
         std::vector<uint64_t> tree_addresses = generate_tree_addresses(writeback_packet.address);
@@ -294,14 +296,37 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
         tree_handle_pkt.llc_address = champsim::address(tree_addresses[tree::MAX_LEVEL-1]);
         tree_handle_pkt.write_tree_cache = true;
         if( this->NAME == "LLC" )
-          success2 = lower_level2->add_rq(tree_handle_pkt);
-        else if (this->NAME == "tree_cache")
-          success2 = upper_levels[0]->add_rq(tree_handle_pkt);
+        {
+          if (this->NAME == "tree_cache8"){
+            success2 = lower_level2->add_rq(tree_handle_pkt);
+          }
+          else if(this->NAME == "tree_cache7") {
+            success2 = lower_level3->add_rq(tree_handle_pkt);
+          }
+          else if(this->NAME == "tree_cache6") {
+            success2 = lower_level4->add_rq(tree_handle_pkt);
+          }
+        }
+          
+          
+        else if (this->NAME == "tree_cache8" || this->NAME == "tree_cache7" || this->NAME == "tree_cache6")
+        {
+          if (this->NAME == "tree_cache8"){
+            success2 = lower_level2->add_rq(tree_handle_pkt);
+          }
+          else if(this->NAME == "tree_cache7") {
+            success2 = lower_level2->add_rq(tree_handle_pkt);
+          }
+          else if(this->NAME == "tree_cache6") {
+            success2 = upper_levels[0]->add_rq(tree_handle_pkt);
+          }
         //fmt::print("Adding to RQ parent tree node {}\n", level);
         if (!success2) {
           fmt::print("Failed to add to RQ parent tree node");
           return false;
         } 
+        }
+
       }
 
     }
@@ -387,7 +412,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
       ++sim_stats.pf_useful;
       way->prefetch = false;
     }
-    if (this->NAME == "tree_cache") {
+    if (this->NAME == "tree_cache8" || this->NAME == "tree_cache7" || this->NAME == "tree_cache6") {
       authenticator.cache_tree_node(handle_pkt.llc_address, handle_pkt.address ,handle_pkt.current_level+1);
       authenticator.set_node_ready(handle_pkt.llc_address, handle_pkt.address);
       if (handle_pkt.write_tree_cache) {
@@ -403,7 +428,15 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
           tree_handle_pkt.current_level = handle_pkt.current_level;
           tree_handle_pkt.llc_address = handle_pkt.llc_address;
           tree_handle_pkt.write_tree_cache = false;
-          upper_levels[0]->add_wq(tree_handle_pkt);
+          if (this->NAME == "tree_cache8"){
+            lower_level2->add_wq(tree_handle_pkt);
+          }
+          else if(this->NAME == "tree_cache6") {
+            lower_level2->add_wq(tree_handle_pkt);
+          }
+          else if(this->NAME == "tree_cache6") {
+            upper_levels[0]->add_wq(tree_handle_pkt);
+          }
         }
     }
 }
@@ -478,10 +511,10 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       return false;  // Don't proceed if either queue is full
   }
   auto send_next_node = [&]() {
-    if (this->NAME == "tree_cache") {
+    if (this->NAME == "tree_cache8" || this->NAME == "tree_cache7" || this->NAME == "tree_cache6") {
       
       int current_level = handle_pkt.current_level;
-      //fmt::print("current_level:{} \n",current_level);
+      fmt::print("current_level:{} \n",current_level);
       //fmt::print("llc address:{} \n",mshr_pkt.second.llc_address);
       if (current_level >= 0) {
         //fmt::print("Calling tree addresses generation \n");
@@ -498,16 +531,33 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
         tree_mshr_pkt.second.response_requested = true;
         tree_mshr_pkt.first.write_tree_cache = handle_pkt.write_tree_cache;
         tree_mshr_pkt.second.write_tree_cache = handle_pkt.write_tree_cache;
-        //fmt::print("adding tree node to authenticator \n");
+        fmt::print("adding tree node to authenticator \n");
         if (send_to_rq) {
+          fmt::print("sending to RQ, cache name:{} \n", this->NAME);
           // Forward to your custom target (e.g., DRAM RQ)
-          success2 = upper_levels[0]->add_rq(tree_mshr_pkt.second);
-          //fmt::print("Tree Address {} added to RQ",tree_mshr_pkt.second.address);
+          if (this->NAME == "tree_cache8"){
+            success2 = lower_level2->add_rq(tree_mshr_pkt.second);
+          }
+          else if(this->NAME == "tree_cache7") {
+            success2 = lower_level2->add_rq(tree_mshr_pkt.second);
+          }
+          else if(this->NAME == "tree_cache6") {
+            success2 = upper_levels[0]->add_rq(tree_mshr_pkt.second);
+          }
+          fmt::print("Tree Address {} added to RQ",tree_mshr_pkt.second.address);
           //fmt::print("RQ Size after {} \n",(int)upper_levels[0]->RQ.size());
 
         } else {
           // Maybe still send PQ to DRAM?
-          success2 = upper_levels[0]->add_pq(tree_mshr_pkt.second);
+          if (this->NAME == "tree_cache8"){
+            success2 = lower_level2->add_pq(tree_mshr_pkt.second);
+          }
+          else if(this->NAME == "tree_cache7") {
+            success2 = lower_level2->add_pq(tree_mshr_pkt.second);
+          }
+          else if(this->NAME == "tree_cache6") {
+            success2 = upper_levels[0]->add_pq(tree_mshr_pkt.second);
+          }
           
         }
       }
@@ -515,7 +565,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   };
 
-  if (auth_queue_full && (this->NAME == "tree_cache" || this->NAME == "LLC")) {
+  if (auth_queue_full && (this->NAME == "tree_cache8" || this->NAME == "tree_cache7" || this->NAME == "tree_cache6" || this->NAME == "LLC")) {
     //fmt::print("Authentication queue full");
     return false;
   }
@@ -545,19 +595,19 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 
     
     
-    if (this->NAME != "tree_cache" && this->NAME != "LLC") {
+    if (this->NAME != "tree_cache8" && this->NAME != "tree_cache7" && this->NAME != "tree_cache6" && this->NAME != "LLC") {
       success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second); 
     }
     
 
-    if (this->NAME == "tree_cache") {
+    if (this->NAME == "tree_cache8" || this->NAME == "tree_cache7" || this->NAME == "tree_cache6") {
       //fmt::print("tree_cache miss on address {}, adding missed address to RQ \n", handle_pkt.address);
       success = send_to_rq ? lower_level->add_rq(mshr_pkt.second) : lower_level->add_pq(mshr_pkt.second);
       //fmt::print("RQ Size after {}",(int)lower_level->RQ.size());
       send_next_node();
     }
     
-    if (this->NAME == "LLC" && lower_level2 != nullptr) {
+    if (this->NAME == "LLC") {
       mshr_pkt.second.current_level = tree::MAX_LEVEL;
       mshr_pkt.second.llc_address = handle_pkt.address;
       mshr_pkt.first.llc_address = handle_pkt.address;
@@ -880,7 +930,7 @@ void CACHE::finish_packet(const response_type& packet)
     assert(0);
   }
   int DECRYPTION_LATENCY = 0;
-  if (this->NAME == "tree_cache" || this->NAME == "LLC") {
+  if (this->NAME == "tree_cache8" || this->NAME == "tree_cache7" || this->NAME == "tree_cache6" || this->NAME == "LLC") {
     DECRYPTION_LATENCY = 20;
   }
   //fmt::print("Cache: {} Packet received from DRAM, address: {} \n", this->NAME, packet.address);

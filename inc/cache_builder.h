@@ -235,6 +235,16 @@ public:
   self_type& lower_level2(champsim::channel* ll2_);
 
   /**
+   * Specify the second lower level of the cache, used for the authentication tree cache
+   */
+  self_type& lower_level3(champsim::channel* ll2_);
+
+  /**
+   * Specify the second lower level of the cache, used for the authentication tree cache
+   */
+  self_type& lower_level4(champsim::channel* ll2_);
+
+  /**
    * Specify the translator (TLB) for this cache.
    */
   self_type& lower_translate(champsim::channel* lt_);
@@ -515,6 +525,20 @@ auto champsim::cache_builder<P, R>::lower_level(champsim::channel* ll_) -> self_
 
 template <typename P, typename R>
 auto champsim::cache_builder<P, R>::lower_level2(champsim::channel* ll2_) -> self_type&
+{
+  m_ll2 = ll2_;
+  return *this;
+}
+
+template <typename P, typename R>
+auto champsim::cache_builder<P, R>::lower_level3(champsim::channel* ll2_) -> self_type&
+{
+  m_ll2 = ll2_;
+  return *this;
+}
+
+template <typename P, typename R>
+auto champsim::cache_builder<P, R>::lower_level4(champsim::channel* ll2_) -> self_type&
 {
   m_ll2 = ll2_;
   return *this;

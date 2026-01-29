@@ -159,6 +159,8 @@ public:
   std::vector<channel_type*> upper_levels;
   channel_type* lower_level;
   channel_type* lower_level2;
+  channel_type* lower_level3;
+  channel_type* lower_level4;
   channel_type* lower_translate;
 
   uint32_t cpu = 0;
